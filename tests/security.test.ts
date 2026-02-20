@@ -7,14 +7,16 @@ import type { LCSConfig } from "../src/config.js";
 // Config with no API key → forces heuristic mode
 const config: LCSConfig = {
   model: "claude-sonnet-4-5-20250929",
+  openaiModel: "gpt-4o",
   apiKey: null,
+  openaiApiKey: null,
   agents: {
-    builder:    { enabled: true, temperature: 0.3 },
-    researcher: { enabled: true, temperature: 0.5 },
-    critic:     { enabled: true, temperature: 0.3 },
-    security:   { enabled: true, temperature: 0.1 },
+    builder:    { enabled: true, temperature: 0.3, provider: "anthropic" as const },
+    researcher: { enabled: true, temperature: 0.5, provider: "anthropic" as const },
+    critic:     { enabled: true, temperature: 0.3, provider: "anthropic" as const },
+    security:   { enabled: true, temperature: 0.1, provider: "anthropic" as const },
   },
-  synthesis: { model: "claude-sonnet-4-5-20250929", temperature: 0.2 },
+  synthesis: { model: "claude-sonnet-4-5-20250929", temperature: 0.2, provider: "anthropic" as const },
 };
 
 describe("Security Agent", () => {

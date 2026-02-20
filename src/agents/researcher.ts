@@ -1,7 +1,7 @@
 import type { LCSPacket, AgentResult } from "./types.js";
 import type { LCSConfig } from "../config.js";
-import { isLLMAvailable } from "../config.js";
-import { llmCall } from "../llm/client.js";
+import { isProviderAvailable, getModelForProvider } from "../config.js";
+import { callLLM } from "../llm/client.js";
 import { RESEARCHER_SYSTEM } from "./prompts.js";
 
 function heuristic(pkt: LCSPacket): AgentResult {
@@ -39,10 +39,13 @@ function heuristic(pkt: LCSPacket): AgentResult {
 }
 
 export async function runResearcher(pkt: LCSPacket, config: LCSConfig, memoryContext: string): Promise<AgentResult> {
-  if (!isLLMAvailable(config)) return heuristic(pkt);
+  const agentConf = config.agents.researcher;
+  const provider = agentConf.provider;
+
+  if (!isProviderAvailable(config, provider)) return heuristic(pkt);
 
   try {
-    const agentConf = config.agents.researcher;
+    const model = getModelForProvider(config, provider);
     const userMsg = `<packet>
 intent: ${pkt.intent}
 domain: ${pkt.domain}
@@ -55,23 +58,23 @@ ${memoryContext}
 ${pkt.userText}
 </user_request>`;
 
-    const raw = await llmCall(config, {
+    const raw = await callLLM(config, {
       system: RESEARCHER_SYSTEM,
       user: userMsg,
-      model: config.model,
+      model,
       temperature: agentConf.temperature,
-    });
+    }, provider);
 
     return {
       agent: "researcher",
-      notes: [`LLM response (${config.model})`],
+      notes: [`${provider}:${model}`],
       proposedAnswer: raw,
       confidence: 0.8,
       source: "llm",
     };
   } catch (err) {
     const fallback = heuristic(pkt);
-    fallback.notes.unshift(`LLM call failed, using heuristic: ${(err as Error).message}`);
+    fallback.notes.unshift(`LLM call failed (${provider}), using heuristic: ${(err as Error).message}`);
     return fallback;
   }
 }

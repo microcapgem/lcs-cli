@@ -7,14 +7,14 @@ import { route } from "./router/router.js";
 import { runAgents } from "./runtime/runAgents.js";
 import { synthesize } from "./kernel/synthesize.js";
 import { appendTrace, readLastTrace, appendMemory, getMemory } from "./memory/store.js";
-import { loadConfig, initConfig, isLLMAvailable } from "./config.js";
+import { loadConfig, initConfig, isLLMAvailable, isProviderAvailable } from "./config.js";
 
 const program = new Command();
 
 program
   .name("lcs")
   .description("LCS-CLI — Larger Consciousness System")
-  .version("0.2.0");
+  .version("0.3.0");
 
 // ── lcs init ────────────────────────────────────────────────────
 
@@ -43,7 +43,12 @@ program
     spinner.succeed(`Routed: intent=${pkt.intent} domain=${pkt.domain} risk=${pkt.risk}`);
 
     if (!llmMode) {
-      ora({ isSilent: opts.json }).warn("No API key — running in heuristic mode. Set ANTHROPIC_API_KEY for LLM agents.");
+      ora({ isSilent: opts.json }).warn("No API keys — running in heuristic mode. Set ANTHROPIC_API_KEY and/or OPENAI_API_KEY.");
+    } else {
+      const providers: string[] = [];
+      if (isProviderAvailable(config, "anthropic")) providers.push("anthropic");
+      if (isProviderAvailable(config, "openai")) providers.push("openai");
+      ora({ isSilent: opts.json }).info(`Providers: ${providers.join(" + ")}`);
     }
 
     // 2. Run agents
@@ -56,12 +61,14 @@ program
         agentSpinner.text = `Running agents... (${doneAgents.join(", ")} done)`;
       }
     });
-    agentSpinner.succeed(`${results.length} agents complete`);
+    const agentProviders = [...new Set(results.map((r) => r.notes[0] ?? "heuristic"))];
+    agentSpinner.succeed(`${results.length} agents complete (${agentProviders.join(", ")})`);
 
     // 3. Synthesize
     const synthSpinner = ora({ isSilent: opts.json }).start("Synthesizing...");
     const out = await synthesize(pkt, results, config);
-    synthSpinner.succeed(`Synthesis complete (${out.source})`);
+    const synthProvider = out.source === "llm" ? `${config.synthesis.provider}` : "heuristic";
+    synthSpinner.succeed(`Synthesis complete (${synthProvider})`);
 
     // 4. Build trace and persist
     const trace = { pkt, results, out, ts: new Date().toISOString() };

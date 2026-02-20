@@ -7,14 +7,16 @@ import type { LCSConfig } from "../src/config.js";
 
 const config: LCSConfig = {
   model: "claude-sonnet-4-5-20250929",
-  apiKey: null, // force heuristic
+  openaiModel: "gpt-4o",
+  apiKey: null,
+  openaiApiKey: null,
   agents: {
-    builder:    { enabled: true, temperature: 0.3 },
-    researcher: { enabled: true, temperature: 0.5 },
-    critic:     { enabled: true, temperature: 0.3 },
-    security:   { enabled: true, temperature: 0.1 },
+    builder:    { enabled: true, temperature: 0.3, provider: "anthropic" as const },
+    researcher: { enabled: true, temperature: 0.5, provider: "anthropic" as const },
+    critic:     { enabled: true, temperature: 0.3, provider: "anthropic" as const },
+    security:   { enabled: true, temperature: 0.1, provider: "anthropic" as const },
   },
-  synthesis: { model: "claude-sonnet-4-5-20250929", temperature: 0.2 },
+  synthesis: { model: "claude-sonnet-4-5-20250929", temperature: 0.2, provider: "anthropic" as const },
 };
 
 function makeResults(): AgentResult[] {
@@ -45,6 +47,15 @@ describe("Kernel Synthesis (heuristic)", () => {
     assert.ok(out.context.includes("intent=design"));
     assert.ok(out.context.includes("domain=ai_architecture"));
     assert.ok(out.context.includes("mode=high_entropy"));
+  });
+
+  it("includes executive summary and TL;DR sections", async () => {
+    const pkt = route("build something");
+    const out = await synthesize(pkt, makeResults(), config);
+
+    assert.ok(out.summary.includes("Executive Summary"));
+    assert.ok(out.summary.includes("TL;DR"));
+    assert.ok(out.summary.includes("Detailed Breakdown"));
   });
 
   it("surfaces security warnings for low-confidence security", async () => {

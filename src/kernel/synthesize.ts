@@ -1,7 +1,7 @@
 import type { LCSPacket, AgentResult, SynthesisOutput } from "../agents/types.js";
 import type { LCSConfig } from "../config.js";
-import { isLLMAvailable } from "../config.js";
-import { llmCall } from "../llm/client.js";
+import { isProviderAvailable, getModelForProvider } from "../config.js";
+import { callLLM } from "../llm/client.js";
 import { SYNTHESIS_SYSTEM } from "../agents/prompts.js";
 
 // ── Deterministic fallback (no LLM) ────────────────────────────
@@ -50,26 +50,51 @@ function heuristicSynthesis(pkt: LCSPacket, results: AgentResult[]): SynthesisOu
   const avgConfidence = results.reduce((s, r) => s + r.confidence, 0) / results.length;
   const sources = results.map((r) => r.source);
   const modeLabel = sources.every((s) => s === "heuristic") ? "heuristic" : "hybrid";
+  const providers = [...new Set(results.map((r) => r.notes[0] ?? "heuristic"))];
 
+  // Build summary with executive summary + TL;DR structure
   const summaryParts: string[] = [
+    "## Executive Summary",
+    "",
+    `Processed "${pkt.userText}" through ${results.length} agents (${providers.join(", ")}). ` +
+    `Average confidence: ${(avgConfidence * 100).toFixed(0)}%. ` +
+    (consensus.some((c) => c.startsWith("SECURITY"))
+      ? "Security concerns were flagged — review recommended before proceeding."
+      : `Routing: ${pkt.intent}/${pkt.domain}/${pkt.mode}. No security concerns.`),
+    "",
+    "---",
+    "",
+    "## Detailed Breakdown",
+    "",
     context,
     "",
-    `Processed by ${results.length} agents (avg confidence: ${(avgConfidence * 100).toFixed(0)}%, mode: ${modeLabel}).`,
+    `Mode: ${modeLabel} | Agents: ${results.length} | Avg confidence: ${(avgConfidence * 100).toFixed(0)}%`,
     "",
   ];
 
   if (consensus.length > 0) {
-    summaryParts.push("Consensus:");
+    summaryParts.push("**Consensus:**");
     for (const c of consensus) {
       summaryParts.push(`  * ${c}`);
     }
     summaryParts.push("");
   }
 
-  summaryParts.push("Next steps:");
+  summaryParts.push("**Next steps:**");
   for (const step of nextSteps) {
     summaryParts.push(`  ${step}`);
   }
+
+  summaryParts.push("");
+  summaryParts.push("---");
+  summaryParts.push("");
+  summaryParts.push("## TL;DR");
+  summaryParts.push("");
+
+  const tldr = consensus.length > 0
+    ? consensus.filter((c) => !c.startsWith("SECURITY")).slice(0, 2).join(". ") + `. Run \`lcs trace\` for full details.`
+    : `Query processed with ${(avgConfidence * 100).toFixed(0)}% confidence. Run \`lcs trace\` for details.`;
+  summaryParts.push(tldr);
 
   return {
     context,
@@ -84,7 +109,7 @@ function heuristicSynthesis(pkt: LCSPacket, results: AgentResult[]): SynthesisOu
 
 function formatAgentResults(results: AgentResult[]): string {
   return results.map((r) => {
-    return `<agent name="${r.agent}" confidence="${r.confidence}" source="${r.source}">
+    return `<agent name="${r.agent}" confidence="${r.confidence}" source="${r.source}" provider="${r.notes[0] ?? "heuristic"}">
 <notes>
 ${r.notes.join("\n")}
 </notes>
@@ -97,6 +122,8 @@ ${r.proposedAnswer}
 
 async function llmSynthesis(pkt: LCSPacket, results: AgentResult[], config: LCSConfig): Promise<SynthesisOutput> {
   const context = `[LCS] intent=${pkt.intent} domain=${pkt.domain} mode=${pkt.mode} risk=${pkt.risk}`;
+  const provider = config.synthesis.provider;
+  const model = provider === "openai" ? config.openaiModel : config.synthesis.model;
 
   const userMsg = `<packet>
 runId: ${pkt.runId}
@@ -115,22 +142,22 @@ ${pkt.userText}
 ${formatAgentResults(results)}
 </agent_results>
 
-Synthesize a single coherent response. Include provenance (which agent contributed what).`;
+Synthesize a single coherent response following the Executive Summary / Detailed Breakdown / TL;DR structure.
+Include provenance (which agent and provider contributed what).`;
 
-  const raw = await llmCall(config, {
+  const raw = await callLLM(config, {
     system: SYNTHESIS_SYSTEM,
     user: userMsg,
-    model: config.synthesis.model,
+    model,
     temperature: config.synthesis.temperature,
     maxTokens: 2048,
-  });
+  }, provider);
 
-  // Extract structured data from the LLM response for the trace
   const avgConfidence = results.reduce((s, r) => s + r.confidence, 0) / results.length;
 
   return {
     context,
-    consensus: [`Synthesized by ${config.synthesis.model} from ${results.length} agents (avg confidence: ${(avgConfidence * 100).toFixed(0)}%)`],
+    consensus: [`Synthesized by ${provider}:${model} from ${results.length} agents (avg confidence: ${(avgConfidence * 100).toFixed(0)}%)`],
     nextSteps: ["- Run `lcs trace` for full agent details."],
     summary: `${context}\n\n${raw}`,
     source: "llm",
@@ -140,13 +167,15 @@ Synthesize a single coherent response. Include provenance (which agent contribut
 // ── Public API ──────────────────────────────────────────────────
 
 export async function synthesize(pkt: LCSPacket, results: AgentResult[], config: LCSConfig): Promise<SynthesisOutput> {
-  if (!isLLMAvailable(config)) return heuristicSynthesis(pkt, results);
+  const provider = config.synthesis.provider;
+
+  if (!isProviderAvailable(config, provider)) return heuristicSynthesis(pkt, results);
 
   try {
     return await llmSynthesis(pkt, results, config);
   } catch (err) {
     const fallback = heuristicSynthesis(pkt, results);
-    fallback.summary = `[LLM synthesis failed: ${(err as Error).message} — falling back to heuristic]\n\n${fallback.summary}`;
+    fallback.summary = `[LLM synthesis failed (${provider}): ${(err as Error).message} — falling back to heuristic]\n\n${fallback.summary}`;
     return fallback;
   }
 }
