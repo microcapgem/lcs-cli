@@ -43,3 +43,17 @@ export function getMemory(key: string): MemoryRecord[] {
   }
   return records;
 }
+
+/** Returns the most recent N memory records across all keys. */
+export function getRecentMemory(limit = 20): MemoryRecord[] {
+  if (!existsSync(MEMORY_FILE)) return [];
+  const lines = readFileSync(MEMORY_FILE, "utf-8").trim().split("\n").filter(Boolean);
+  return lines.slice(-limit).map((l) => JSON.parse(l) as MemoryRecord);
+}
+
+/** Format memory records as context string for agent prompts. */
+export function formatMemoryContext(records: MemoryRecord[]): string {
+  if (records.length === 0) return "";
+  const lines = records.map((r) => `[${r.type}] ${r.key}: ${r.value}`);
+  return `\n<memory>\n${lines.join("\n")}\n</memory>`;
+}

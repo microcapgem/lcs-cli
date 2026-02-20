@@ -1,6 +1,6 @@
 {
   "name": "lcs-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "LCS — Larger Consciousness System CLI. A governed, stateful, multi-agent synthesis engine.",
   "type": "module",
   "bin": {
@@ -9,11 +9,14 @@
   "scripts": {
     "dev": "node --loader ts-node/esm src/cli.ts",
     "build": "tsc",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "test": "node --loader ts-node/esm --test tests/*.test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "commander": "^12.1.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "ora": "^8.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.5.0",

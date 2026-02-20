@@ -1,4 +1,8 @@
 import type { LCSPacket, AgentResult } from "./types.js";
+import type { LCSConfig } from "../config.js";
+import { isLLMAvailable } from "../config.js";
+import { llmCall } from "../llm/client.js";
+import { SECURITY_SYSTEM } from "./prompts.js";
 
 const INJECTION_PATTERNS = [
   "ignore previous",
@@ -17,7 +21,7 @@ const INJECTION_PATTERNS = [
   "constructor[",
 ];
 
-export function runSecurity(pkt: LCSPacket): AgentResult {
+function heuristic(pkt: LCSPacket): AgentResult {
   const notes: string[] = [];
   const lines: string[] = [];
   const lower = pkt.userText.toLowerCase();
@@ -50,5 +54,53 @@ export function runSecurity(pkt: LCSPacket): AgentResult {
     notes,
     proposedAnswer: lines.join("\n"),
     confidence,
+    source: "heuristic",
   };
+}
+
+export async function runSecurity(pkt: LCSPacket, config: LCSConfig, memoryContext: string): Promise<AgentResult> {
+  // Security agent ALWAYS runs the heuristic scan first (fast, deterministic)
+  const heuristicResult = heuristic(pkt);
+
+  if (!isLLMAvailable(config)) return heuristicResult;
+
+  try {
+    const agentConf = config.agents.security;
+    const userMsg = `<packet>
+intent: ${pkt.intent}
+domain: ${pkt.domain}
+mode: ${pkt.mode}
+risk: ${pkt.risk}
+constraints: ${pkt.constraints.join(", ") || "none"}
+</packet>
+
+<heuristic_scan>
+${heuristicResult.proposedAnswer}
+</heuristic_scan>
+${memoryContext}
+<user_request>
+${pkt.userText}
+</user_request>`;
+
+    const raw = await llmCall(config, {
+      system: SECURITY_SYSTEM,
+      user: userMsg,
+      model: config.model,
+      temperature: agentConf.temperature,
+    });
+
+    // Merge: keep heuristic detections, add LLM analysis
+    const mergedNotes = [...heuristicResult.notes, `LLM security analysis (${config.model})`];
+
+    return {
+      agent: "security",
+      notes: mergedNotes,
+      proposedAnswer: `${heuristicResult.proposedAnswer}\n\n--- LLM Analysis ---\n${raw}`,
+      confidence: heuristicResult.confidence,
+      source: "llm",
+    };
+  } catch (err) {
+    heuristicResult.notes.unshift(`LLM call failed, using heuristic only: ${(err as Error).message}`);
+    return heuristicResult;
+  }
 }

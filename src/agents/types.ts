@@ -23,6 +23,7 @@ export interface AgentResult {
   notes: string[];
   proposedAnswer: string;
   confidence: number; // 0–1
+  source: "llm" | "heuristic";
 }
 
 export interface SynthesisOutput {
@@ -30,6 +31,7 @@ export interface SynthesisOutput {
   consensus: string[];
   nextSteps: string[];
   summary: string;
+  source: "llm" | "heuristic";
 }
 
 export interface TraceRecord {
