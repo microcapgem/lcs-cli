@@ -1,0 +1,23 @@
+{
+  "name": "lcs-cli",
+  "version": "0.1.0",
+  "description": "LCS — Larger Consciousness System CLI. A governed, stateful, multi-agent synthesis engine.",
+  "type": "module",
+  "bin": {
+    "lcs": "dist/cli.js"
+  },
+  "scripts": {
+    "dev": "node --loader ts-node/esm src/cli.ts",
+    "build": "tsc",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}
